@@ -72,6 +72,17 @@ pub fn build(b: *std.Build) !void {
     const test_opts = BuildOpts{ .optimize = optimize, .dependencies = deps };
     _ = test_opts;
     // addTest(b, "test-all", "Run all unit tests", "src/test.zig", test_opts);
+
+    const test_config = ExeConfig{
+        .version = .{ .major = 0, .minor = 1, .patch = 0 },
+        .name = "test-stdin",
+        .build_cmd = "testin",
+        .build_description = "Build the stdin test executable",
+        .run_cmd = "run-testin",
+        .run_description = "Run the stdin test xecutable (use `-- <args>` to supply arguments)",
+        .root_path = "src/test.zig",
+    };
+    addExecutable(b, test_config, exe_opts);
 }
 
 /// Add an executable (build & run) step using the given file
