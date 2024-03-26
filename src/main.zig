@@ -1,6 +1,7 @@
 const std = @import("std");
 const zd = @import("zigdown");
-const clap = @import("clap");
+
+const clap = zd.clap; // Zig-Clap dependency inherited from Zigdown
 
 const os = std.os;
 
@@ -130,13 +131,11 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File) !void {
     const md_text = try file.readToEndAlloc(alloc, 1e9);
     defer alloc.free(md_text);
 
-    var parser: zd.Parser = try zd.Parser.init(alloc, .{ .copy_input = false, .verbose = false });
+    var parser: zd.Parser = zd.Parser.init(alloc, .{ .copy_input = false, .verbose = false });
     defer parser.deinit();
 
     try parser.parseMarkdown(md_text);
 
-    // TODO:
-    // - Take in stdin to process forward/next commands
     const wsz = try zd.gfx.getTerminalSize();
     _ = try stdout.write(zd.cons.clear_screen);
     for (0..wsz.rows) |_| {
@@ -165,8 +164,7 @@ const RawTTY = struct {
 
         // Store the original terminal settings for later
         // Apply the settings to enable raw TTY ('uncooked' terminal input)
-        // const tty = std.io.getStdIn();
-        const tty: std.fs.File = try std.fs.cwd().openFile("/dev/tty", .{ .mode = .read_write });
+        const tty = std.io.getStdIn();
 
         var orig_termios: std.c.termios = undefined;
         _ = std.c.tcgetattr(tty.handle, &orig_termios);

@@ -39,14 +39,11 @@ pub fn build(b: *std.Build) !void {
     // Dependencies from build.zig.zon
     // ------------------------------------------------------------------------
     // Zigdown
+    // Note that we also inherit its Zig-Clap and STB Image dependencies
     const zigdown = b.dependency("zigdown", .{ .optimize = optimize, .target = target });
     const zigdown_dep = Dependency{ .name = "zigdown", .module = zigdown.module("zigdown") };
 
-    // Zig-Clap
-    const clap = b.dependency("zig_clap", .{ .optimize = optimize, .target = target });
-    const clap_dep = Dependency{ .name = "clap", .module = clap.module("clap") };
-
-    var dep_array = [_]Dependency{ zigdown_dep, clap_dep };
+    var dep_array = [_]Dependency{zigdown_dep};
     const deps: []Dependency = &dep_array;
 
     const exe_opts = BuildOpts{
