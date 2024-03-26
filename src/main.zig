@@ -22,7 +22,6 @@ pub fn main() !void {
         \\ -d, --dir  <str>   Directory for the slide deck
         \\ -v, --verbose      Verbose parser output
     );
-    //    \\ <str>              Markdown file to render
 
     // Have Clap parse the command-line arguments
     var res = try clap.parse(clap.Help, &params, clap.parsers.default, .{ .allocator = alloc });
@@ -166,24 +165,26 @@ const RawTTY = struct {
 
         // Store the original terminal settings for later
         // Apply the settings to enable raw TTY ('uncooked' terminal input)
-        const tty = std.io.getStdIn();
+        // const tty = std.io.getStdIn();
+        const tty: std.fs.File = try std.fs.cwd().openFile("/dev/tty", .{ .mode = .read_write });
+
         var orig_termios: std.c.termios = undefined;
         _ = std.c.tcgetattr(tty.handle, &orig_termios);
         var raw = orig_termios;
 
         raw.lflag = linux.tc_lflag_t{
-            .ECHO = true,
-            .ICANON = true,
-            .ISIG = true,
-            .IEXTEN = true,
+            .ECHO = false,
+            .ICANON = false,
+            .ISIG = false,
+            .IEXTEN = false,
         };
 
         raw.iflag = linux.tc_iflag_t{
-            .IXON = true,
-            .ICRNL = true,
-            .BRKINT = true,
-            .INPCK = true,
-            .ISTRIP = true,
+            .IXON = false,
+            .ICRNL = false,
+            .BRKINT = false,
+            .INPCK = false,
+            .ISTRIP = false,
         };
 
         raw.cc[@intFromEnum(linux.V.TIME)] = 0;
