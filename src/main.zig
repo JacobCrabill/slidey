@@ -1,5 +1,6 @@
 const std = @import("std");
 const zd = @import("zigdown");
+const RawTTY = @import("RawTTY.zig");
 
 const clap = zd.clap; // Zig-Clap dependency inherited from Zigdown
 
@@ -49,15 +50,13 @@ pub fn main() !void {
     try present(alloc, dirname, dir);
 }
 
+/// User-input commands while in Present mode
 pub const Command = enum(u8) {
     Next,
     Previous,
 };
 
 pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
-    // const in_buf: [16]u8 = undefined;
-    // const f_stdin = std.io.getStdIn();
-    // const stdin = f_stdin.reader();
     const raw_tty = try RawTTY.init();
     defer raw_tty.deinit();
 
@@ -87,8 +86,10 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
         }
     }
 
+    // Sort the slides
+    std.sort.heap([]const u8, slides.items, {}, cmpStr);
+
     // Begin the presentation, using stdin to go forward/backward
-    // TODO: uncooked / raw stdin to allow capturing, e.g., arrow keys
     var i: usize = 0;
     var update: bool = true;
     var quit: bool = false;
@@ -102,23 +103,39 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
 
         // Check for a keypress to advance to the next slide
         switch (raw_tty.read()) {
-            'n', 'j', 'l' => {
+            'n', 'j', 'l' => { // Next Slide
                 if (i < slides.items.len - 1) {
                     i += 1;
                     update = true;
-                    std.debug.print("got next\n", .{});
                 }
             },
-            'p', 'h', 'k' => {
+            'p', 'h', 'k' => { // Previous Slide
                 if (i > 0) {
                     i -= 1;
-                    std.debug.print("got prev\n", .{});
                     update = true;
                 }
             },
-            'q' => {
-                std.debug.print("got quit\n", .{});
+            'q' => { // Quit
                 quit = true;
+            },
+            27 => { // Escape (0x1b)
+                if (raw_tty.read() == 91) { // 0x5b (??)
+                    switch (raw_tty.read()) {
+                        66, 67 => { // Down, Right -- Next Slide
+                            if (i < slides.items.len - 1) {
+                                i += 1;
+                                update = true;
+                            }
+                        },
+                        65, 68 => { // Up, Left -- Previous Slide
+                            if (i > 0) {
+                                i -= 1;
+                                update = true;
+                            }
+                        },
+                        else => {},
+                    }
+                }
             },
             else => {},
         }
@@ -153,86 +170,16 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File) !void {
     try c_renderer.renderBlock(parser.document);
 }
 
-const RawTTY = struct {
-    const Self = @This();
-    tty: File = undefined,
-    orig_termios: std.c.termios = undefined,
-    writer: std.io.Writer(File, File.WriteError, File.write) = undefined,
-
-    pub fn init() !Self {
-        const linux = os.linux;
-
-        // Store the original terminal settings for later
-        // Apply the settings to enable raw TTY ('uncooked' terminal input)
-        const tty = std.io.getStdIn();
-
-        var orig_termios: std.c.termios = undefined;
-        _ = std.c.tcgetattr(tty.handle, &orig_termios);
-        var raw = orig_termios;
-
-        raw.lflag = linux.tc_lflag_t{
-            .ECHO = false,
-            .ICANON = false,
-            .ISIG = false,
-            .IEXTEN = false,
-        };
-
-        raw.iflag = linux.tc_iflag_t{
-            .IXON = false,
-            .ICRNL = false,
-            .BRKINT = false,
-            .INPCK = false,
-            .ISTRIP = false,
-        };
-
-        raw.cc[@intFromEnum(linux.V.TIME)] = 0;
-        raw.cc[@intFromEnum(linux.V.MIN)] = 1;
-        _ = std.c.tcsetattr(tty.handle, .FLUSH, &raw);
-
-        const writer = std.io.getStdOut().writer(); // tty.writer();
-
-        try writer.writeAll("\x1B[?25l"); // Hide the cursor
-        try writer.writeAll("\x1B[s"); // Save cursor position
-        try writer.writeAll("\x1B[?47h"); // Save screen
-        try writer.writeAll("\x1B[?1049h"); // Enable alternative buffer
-
-        return Self{
-            .tty = tty,
-            .writer = writer,
-            .orig_termios = orig_termios,
-        };
+/// String comparator for standard ASCII ascending sort
+fn cmpStr(_: void, left: []const u8, right: []const u8) bool {
+    const N = @min(left.len, right.len);
+    for (0..N) |i| {
+        if (left[i] > right[i])
+            return false;
     }
 
-    fn deinit(self: Self) void {
-        _ = std.c.tcsetattr(self.tty.handle, .FLUSH, &self.orig_termios);
+    if (left.len <= right.len)
+        return true;
 
-        self.writer.writeAll("\x1B[?1049l") catch {}; // Disable alternative buffer
-        self.writer.writeAll("\x1B[?47l") catch {}; // Restore screen
-        self.writer.writeAll("\x1B[u") catch {}; // Restore cursor position
-        self.writer.writeAll("\x1B[?25h") catch {}; // Show the cursor
-        // self.writer = undefined;
-
-        self.tty.close();
-        // self.tty = undefined;
-    }
-
-    pub fn read(self: Self) u8 {
-        while (true) {
-            var buffer: [1]u8 = undefined;
-            const nb = self.tty.read(&buffer) catch return 0;
-            if (nb < 1) continue;
-            return buffer[0];
-        }
-    }
-
-    fn moveCursor(self: Self, row: usize, col: usize) !void {
-        _ = try self.writer.print("\x1B[{};{}H", .{ row + 1, col + 1 });
-    }
-};
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+    return false;
 }
