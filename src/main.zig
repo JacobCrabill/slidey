@@ -97,7 +97,7 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
         if (update) {
             const slide: []const u8 = slides.items[i];
             const file = try std.fs.openFileAbsolute(slide, .{});
-            try renderFile(alloc, dirname, file);
+            try renderFile(alloc, dirname, file, i + 1, slides.items.len);
             update = false;
         }
 
@@ -142,17 +142,20 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
     }
 }
 
-fn renderFile(alloc: Allocator, dir: []const u8, file: File) !void {
+fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_slides: usize) !void {
     const stdout = std.io.getStdOut().writer();
 
+    // Read slide file
     const md_text = try file.readToEndAlloc(alloc, 1e9);
     defer alloc.free(md_text);
 
+    // Parse slide
     var parser: zd.Parser = zd.Parser.init(alloc, .{ .copy_input = false, .verbose = false });
     defer parser.deinit();
 
     try parser.parseMarkdown(md_text);
 
+    // Clear the screen
     const wsz = try zd.gfx.getTerminalSize();
     _ = try stdout.write(zd.cons.clear_screen);
     for (0..wsz.rows) |_| {
@@ -160,6 +163,7 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File) !void {
     }
     try stdout.print(zd.cons.set_row_col, .{ 0, 0 });
 
+    // Render slide
     const opts = zd.render.render_console.RenderOpts{
         .root_dir = dir,
         .indent = 2,
@@ -167,7 +171,12 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File) !void {
     };
     var c_renderer = zd.consoleRenderer(stdout, alloc, opts);
     defer c_renderer.deinit();
+
     try c_renderer.renderBlock(parser.document);
+
+    // Display slide number
+    try stdout.print(zd.cons.set_row_col, .{ wsz.rows - 1, wsz.cols - 8 });
+    try stdout.print("{d}/{d}", .{ slide_no, n_slides });
 }
 
 /// String comparator for standard ASCII ascending sort

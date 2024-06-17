@@ -1,11 +1,11 @@
 .{
     .name = "slidey",
     .version = "0.0.0",
-    .minimum_zig_version = "0.12.0-dev.2644",
+    .minimum_zig_version = "0.12.0",
     .dependencies = .{
         .zigdown = .{
-            .url = "https://github.com/jacobcrabill/zigdown/archive/f1c2c5a0d4f40378d11fbe3d437934d0a5637e86.tar.gz",
-            .hash = "122091b7091ab61f21e226371a1c52de009013e8b7dd396ee06f34b42c93bde0b0c4",
+            .url = "https://github.com/jacobcrabill/zigdown/archive/3f7e403b2a26e33e0d8053c993f8894c5c8716ef.tar.gz",
+            .hash = "122018848dedcc0d7c8dddb97a9c96086c3a0af44a72c7a839cc5bffde110c29b609",
         },
     },
     .paths = .{
