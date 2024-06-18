@@ -22,6 +22,7 @@ pub fn main() !void {
     const params = comptime clap.parseParamsComptime(
         \\     --help         Display help and exit
         \\ -d, --dir  <str>   Directory for the slide deck
+        \\ -r, --recurse      Recursively iterate the directory to find .md files
         \\ -v, --verbose      Verbose parser output
     );
 
@@ -46,8 +47,9 @@ pub fn main() !void {
         // print_usage();
         std.process.exit(0);
     }
+    const recurse: bool = (res.args.recurse > 0);
 
-    try present(alloc, dirname, dir);
+    try present(alloc, dirname, dir, recurse);
 }
 
 /// User-input commands while in Present mode
@@ -56,7 +58,31 @@ pub const Command = enum(u8) {
     Previous,
 };
 
-pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
+fn loadSlidesFromDirectory(alloc: Allocator, dir: Dir, recurse: bool, slides: *ArrayList([]const u8)) !void {
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        switch (entry.kind) {
+            .file => {
+                var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const realpath = try dir.realpath(entry.name, &path_buf);
+                if (std.mem.eql(u8, ".md", std.fs.path.extension(realpath))) {
+                    std.debug.print("Adding slide: {s}\n", .{realpath});
+                    const slide: []const u8 = try alloc.dupe(u8, realpath);
+                    try slides.append(slide);
+                }
+            },
+            .directory => {
+                if (recurse) {
+                    const child_dir: Dir = try dir.openDir(entry.name, .{ .iterate = true });
+                    try loadSlidesFromDirectory(alloc, child_dir, recurse, slides);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !void {
     const raw_tty = try RawTTY.init();
     defer raw_tty.deinit();
 
@@ -69,22 +95,7 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir) !void {
         slides.deinit();
     }
 
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        // entry.name
-        switch (entry.kind) {
-            .file => {
-                var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const realpath = try dir.realpath(entry.name, &path_buf);
-                if (std.mem.eql(u8, ".md", std.fs.path.extension(realpath))) {
-                    std.debug.print("Adding slide: {s}\n", .{realpath});
-                    const slide: []const u8 = try alloc.dupe(u8, realpath);
-                    try slides.append(slide);
-                }
-            },
-            else => {},
-        }
-    }
+    try loadSlidesFromDirectory(alloc, dir, recurse, &slides);
 
     // Sort the slides
     std.sort.heap([]const u8, slides.items, {}, cmpStr);
