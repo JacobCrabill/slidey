@@ -169,9 +169,6 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_
     // Clear the screen
     const wsz = try zd.gfx.getTerminalSize();
     _ = try stdout.write(zd.cons.clear_screen);
-    for (0..wsz.rows) |_| {
-        _ = try stdout.write("\n");
-    }
     try stdout.print(zd.cons.set_row_col, .{ 0, 0 });
 
     // Render slide
