@@ -58,6 +58,10 @@ pub const Command = enum(u8) {
     Previous,
 };
 
+/// Load all *.md files in the given directory; append their absolute paths to the 'slides' array
+/// dir:     The directory to search
+/// recurse: If true, also recursively search all child directories of 'dir'
+/// slides:  The array to append all slide filenames to
 fn loadSlidesFromDirectory(alloc: Allocator, dir: Dir, recurse: bool, slides: *ArrayList([]const u8)) !void {
     var iter = dir.iterate();
     while (try iter.next()) |entry| {
@@ -82,6 +86,10 @@ fn loadSlidesFromDirectory(alloc: Allocator, dir: Dir, recurse: bool, slides: *A
     }
 }
 
+/// Begin the slideshow using all slides within 'dir' at the sub-path 'dirname'
+/// dirname: The directory containing the slides (.md files) (relative path)
+/// dir:     The directory which 'dirname' is relative to
+/// recurse: If true, all *.md files in all child directories of {dir}/{dirname} will be used
 pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !void {
     const raw_tty = try RawTTY.init();
     defer raw_tty.deinit();
@@ -153,6 +161,11 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !
     }
 }
 
+/// Read a given Markdown file from a directory and render it to the terminal
+/// Also render a slide counter in the bottom-right corner
+/// The given directory is used as the 'root_dir' option for the renderer -
+/// this is used to determine the path to relative includes such as images
+/// and links
 fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_slides: usize) !void {
     const stdout = std.io.getStdOut().writer();
 

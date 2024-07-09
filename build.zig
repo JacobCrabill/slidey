@@ -7,7 +7,7 @@ const Dependency = struct {
 
 const ExeConfig = struct {
     version: ?std.SemanticVersion = null, // The version of the executable
-    name: []const u8, // @param[in] name: The name for the generated executable
+    name: []const u8, // The name for the generated executable
     build_cmd: []const u8, // The build step name ('zig build <cmd>')
     build_description: []const u8, // The description for the build step ('zig build -l')
     run_cmd: []const u8, // The run step name ('zig build <cmd>')
@@ -25,15 +25,13 @@ pub fn build(b: *std.Build) !void {
     // Default build target, unless overridden with '-Dtarget=<>'
     const target = b.standardTargetOptions(.{});
 
-    const optimize = b.standardOptimizeOption(.{});
-
-    // // Default to ReleaseSafe, but allow the user to specify Debug or ReleaseFast builds
-    // var optimize: std.builtin.Mode = .ReleaseSafe;
-    // if (b.option(bool, "debug", "Build Debug mode") != null) {
-    //     optimize = .Debug;
-    // } else if (b.option(bool, "fast", "Build ReleaseFast mode") != null) {
-    //     optimize = .ReleaseFast;
-    // }
+    // Default to Debug, but allow the user to easily specify ReleaseSafe or ReleaseFast builds
+    var optimize = b.standardOptimizeOption(.{});
+    if (b.option(bool, "safe", "Build ReleaseSafe mode") != null) {
+        optimize = .ReleaseSafe;
+    } else if (b.option(bool, "fast", "Build ReleaseFast mode") != null) {
+        optimize = .ReleaseFast;
+    }
 
     ///////////////////////////////////////////////////////////////////////////
     // Dependencies from build.zig.zon
