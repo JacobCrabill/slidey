@@ -4,8 +4,8 @@
     .minimum_zig_version = "0.12.0",
     .dependencies = .{
         .zigdown = .{
-            .url = "https://github.com/jacobcrabill/zigdown/archive/792f13137f4f8aa5952bc616a2d426b04d1d3020.tar.gz",
-            .hash = "12207328d93f377aa6e0866c4a5f9bd6c2ef6236a91ba4851437c3d820f57d3a8d4d",
+            .url = "https://github.com/jacobcrabill/zigdown/archive/2ca6a50eaea6b0189b8dea1d76522e9a2323277e.tar.gz",
+            .hash = "122043a2d279eb734aec42c6a4a98a0ee03d9034d31f8b1b94dee8fae34cce5e878c",
         },
     },
     .paths = .{
