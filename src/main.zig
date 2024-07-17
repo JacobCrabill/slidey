@@ -12,6 +12,20 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const FileWriter = std.io.Writer(File, File.WriteError, File.write);
 
+fn print_usage(alloc: std.mem.Allocator, comptime params: anytype) void {
+    var argi = std.process.argsWithAllocator(alloc) catch return;
+    const arg0: []const u8 = argi.next().?;
+
+    const usage = "    {s} [options] [filename.md]\n\n";
+
+    const Green = zd.utils.TextStyle{ .fg_color = .Green, .bold = true };
+    const White = zd.utils.TextStyle{ .fg_color = .White };
+    zd.cons.printStyled(std.debug, Green, "\nUsage:\n", .{});
+    zd.cons.printStyled(std.debug, White, usage, .{arg0});
+    zd.cons.printStyled(std.debug, Green, "Options:\n", .{});
+    clap.help(std.io.getStdOut().writer(), clap.Help, &params, .{}) catch unreachable;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -21,9 +35,9 @@ pub fn main() !void {
     // Each arg has a short and/or long variant with optional type and help description
     const params = comptime clap.parseParamsComptime(
         \\     --help         Display help and exit
-        \\ -d, --dir  <str>   Directory for the slide deck
         \\ -r, --recurse      Recursively iterate the directory to find .md files
         \\ -v, --verbose      Verbose parser output
+        \\ <str>              Directory for the slide deck
     );
 
     // Have Clap parse the command-line arguments
@@ -32,24 +46,26 @@ pub fn main() !void {
 
     // Process args
     if (res.args.help != 0) {
-        // print_usage(alloc);
+        print_usage(alloc, params);
         std.process.exit(0);
     }
 
     var dir: Dir = undefined;
-    var dirname: []const u8 = undefined;
-    if (res.args.dir) |deck_dir| {
+    var dirname: ?[]const u8 = null;
+    for (res.positionals) |deck_dir| {
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const realpath = try std.fs.realpath(deck_dir, &path_buf);
         dirname = realpath;
         dir = try std.fs.openDirAbsolute(realpath, .{ .iterate = true });
-    } else {
-        // print_usage();
-        std.process.exit(0);
+        break;
     }
-    const recurse: bool = (res.args.recurse > 0);
 
-    try present(alloc, dirname, dir, recurse);
+    if (dirname) |dname| {
+        const recurse: bool = (res.args.recurse > 0);
+        try present(alloc, dname, dir, recurse);
+    }
+
+    print_usage(alloc, params);
 }
 
 /// User-input commands while in Present mode
