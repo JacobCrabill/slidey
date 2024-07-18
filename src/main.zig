@@ -26,6 +26,12 @@ fn print_usage(alloc: std.mem.Allocator, comptime params: anytype) void {
     clap.help(std.io.getStdOut().writer(), clap.Help, &params, .{}) catch unreachable;
 }
 
+const Source = struct {
+    dir: Dir = undefined,
+    slides: ?File = null,
+    root: []const u8 = undefined,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -37,7 +43,10 @@ pub fn main() !void {
         \\     --help         Display help and exit
         \\ -r, --recurse      Recursively iterate the directory to find .md files
         \\ -v, --verbose      Verbose parser output
+        \\ -s, --slides <str> Path to a text file containing a list of slides for the
+        \\                    presentation (rather than all files in the directory)
         \\ <str>              Directory for the slide deck
+        \\
     );
 
     // Have Clap parse the command-line arguments
@@ -50,22 +59,29 @@ pub fn main() !void {
         std.process.exit(0);
     }
 
-    var dir: Dir = undefined;
-    var dirname: ?[]const u8 = null;
-    for (res.positionals) |deck_dir| {
+    var source: Source = .{};
+
+    if (res.args.slides) |s| {
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const realpath = try std.fs.realpath(deck_dir, &path_buf);
-        dirname = realpath;
-        dir = try std.fs.openDirAbsolute(realpath, .{ .iterate = true });
+        const path = try std.fs.realpath(s, &path_buf);
+        source.slides = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
+    }
+
+    for (res.positionals) |deck| {
+        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const path = try std.fs.realpath(deck, &path_buf);
+        source.root = path;
+
+        source.dir = try std.fs.openDirAbsolute(path, .{ .iterate = true });
         break;
     }
 
-    if (dirname) |dname| {
-        const recurse: bool = (res.args.recurse > 0);
-        try present(alloc, dname, dir, recurse);
-    }
+    const recurse: bool = (res.args.recurse > 0);
+    const stdout = std.io.getStdOut().writer();
+    try present(alloc, stdout, source, recurse);
 
-    print_usage(alloc, params);
+    // Clear the screen one last time _after_ the RawTTY deinits
+    _ = try stdout.write(zd.cons.clear_screen);
 }
 
 /// User-input commands while in Present mode
@@ -102,11 +118,31 @@ fn loadSlidesFromDirectory(alloc: Allocator, dir: Dir, recurse: bool, slides: *A
     }
 }
 
+/// Load a list of slides to present from a single text file
+fn loadSlidesFromFile(alloc: Allocator, dir: Dir, file: File, slides: *ArrayList([]const u8)) !void {
+    const buf = try file.readToEndAlloc(alloc, 1_000_000);
+    defer alloc.free(buf);
+
+    var lines = std.mem.split(u8, buf, "\n");
+    while (lines.next()) |name| {
+        if (name.len < 1) break;
+
+        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const realpath = try dir.realpath(name, &path_buf);
+        if (std.mem.eql(u8, ".md", std.fs.path.extension(realpath))) {
+            std.debug.print("Adding slide: {s}\n", .{realpath});
+            const slide: []const u8 = try alloc.dupe(u8, realpath);
+            try slides.append(slide);
+        }
+    }
+}
+
 /// Begin the slideshow using all slides within 'dir' at the sub-path 'dirname'
+/// alloc:   The allocator to use for all file reading, parsing, and rendering
 /// dirname: The directory containing the slides (.md files) (relative path)
 /// dir:     The directory which 'dirname' is relative to
 /// recurse: If true, all *.md files in all child directories of {dir}/{dirname} will be used
-pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !void {
+pub fn present(alloc: Allocator, writer: anytype, source: Source, recurse: bool) !void {
     const raw_tty = try RawTTY.init();
     defer raw_tty.deinit();
 
@@ -119,10 +155,14 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !
         slides.deinit();
     }
 
-    try loadSlidesFromDirectory(alloc, dir, recurse, &slides);
+    if (source.slides) |file| {
+        try loadSlidesFromFile(alloc, source.dir, file, &slides);
+    } else {
+        try loadSlidesFromDirectory(alloc, source.dir, recurse, &slides);
 
-    // Sort the slides
-    std.sort.heap([]const u8, slides.items, {}, cmpStr);
+        // Sort the slides
+        std.sort.heap([]const u8, slides.items, {}, cmpStr);
+    }
 
     // Begin the presentation, using stdin to go forward/backward
     var i: usize = 0;
@@ -132,7 +172,7 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !
         if (update) {
             const slide: []const u8 = slides.items[i];
             const file = try std.fs.openFileAbsolute(slide, .{});
-            try renderFile(alloc, dirname, file, i + 1, slides.items.len);
+            try renderFile(alloc, writer, source.root, file, i + 1, slides.items.len);
             update = false;
         }
 
@@ -182,8 +222,7 @@ pub fn present(alloc: Allocator, dirname: []const u8, dir: Dir, recurse: bool) !
 /// The given directory is used as the 'root_dir' option for the renderer -
 /// this is used to determine the path to relative includes such as images
 /// and links
-fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_slides: usize) !void {
-    const stdout = std.io.getStdOut().writer();
+fn renderFile(alloc: Allocator, writer: anytype, dir: []const u8, file: File, slide_no: usize, n_slides: usize) !void {
 
     // Read slide file
     const md_text = try file.readToEndAlloc(alloc, 1e9);
@@ -197,8 +236,8 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_
 
     // Clear the screen
     const wsz = try zd.gfx.getTerminalSize();
-    _ = try stdout.write(zd.cons.clear_screen);
-    try stdout.print(zd.cons.set_row_col, .{ 0, 0 });
+    _ = try writer.write(zd.cons.clear_screen);
+    try writer.print(zd.cons.set_row_col, .{ 0, 0 });
 
     // Render slide
     const opts = zd.render.render_console.RenderOpts{
@@ -206,14 +245,14 @@ fn renderFile(alloc: Allocator, dir: []const u8, file: File, slide_no: usize, n_
         .indent = 2,
         .width = wsz.cols - 2,
     };
-    var c_renderer = zd.consoleRenderer(stdout, alloc, opts);
+    var c_renderer = zd.consoleRenderer(writer, alloc, opts);
     defer c_renderer.deinit();
 
     try c_renderer.renderBlock(parser.document);
 
     // Display slide number
-    try stdout.print(zd.cons.set_row_col, .{ wsz.rows - 1, wsz.cols - 8 });
-    try stdout.print("{d}/{d}", .{ slide_no, n_slides });
+    try writer.print(zd.cons.set_row_col, .{ wsz.rows - 1, wsz.cols - 8 });
+    try writer.print("{d}/{d}", .{ slide_no, n_slides });
 }
 
 /// String comparator for standard ASCII ascending sort

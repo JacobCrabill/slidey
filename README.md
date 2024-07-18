@@ -6,7 +6,7 @@ Test example:
 
 ```bash
 zig build -Doptimize=ReleaseSafe
-./zig-out/bin/slidey -d test/deck
+./zig-out/bin/slidey -s test/deck/slides.txt test/deck
 ```
 
 ## Demo
