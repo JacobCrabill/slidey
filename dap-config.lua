@@ -7,7 +7,7 @@ return {
         request = "launch",
         cwd = "${workspaceFolder}",
         program = "${workspaceFolder}" .. "/zig-out/bin/slidey",
-        args = { "-d", "test/deck" },
+        args = { "-s", "test/deck/slides.txt" },
       },
     },
   },

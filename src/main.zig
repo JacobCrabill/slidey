@@ -2,7 +2,7 @@ const std = @import("std");
 const zd = @import("zigdown");
 const RawTTY = @import("RawTTY.zig");
 
-const clap = zd.clap; // Zig-Clap dependency inherited from Zigdown
+const flags = zd.flags; // Flags dependency inherited from Zigdown
 
 const os = std.os;
 
@@ -12,19 +12,41 @@ const Dir = std.fs.Dir;
 const File = std.fs.File;
 const FileWriter = std.io.Writer(File, File.WriteError, File.write);
 
-fn print_usage(alloc: std.mem.Allocator, comptime params: anytype) void {
-    var argi = std.process.argsWithAllocator(alloc) catch return;
-    const arg0: []const u8 = argi.next().?;
-
-    const usage = "    {s} [options] [filename.md]\n\n";
-
-    const Green = zd.utils.TextStyle{ .fg_color = .Green, .bold = true };
-    const White = zd.utils.TextStyle{ .fg_color = .White };
-    zd.cons.printStyled(std.debug, Green, "\nUsage:\n", .{});
-    zd.cons.printStyled(std.debug, White, usage, .{arg0});
-    zd.cons.printStyled(std.debug, Green, "Options:\n", .{});
-    clap.help(std.io.getStdOut().writer(), clap.Help, &params, .{}) catch unreachable;
+fn print_usage() void {
+    const stdout = std.io.getStdOut().writer();
+    flags.help.printUsage(Slidey, null, 85, stdout) catch unreachable;
 }
+
+/// Command-line arguments definition for the Flags module
+const Slidey = struct {
+    pub const description = "Simple, elegant in-terminal presentation tool";
+
+    pub const descriptions = .{
+        .directory =
+        \\Directory for the slide deck (Present all .md files in the directory).
+        \\Slides will be presented in alphabetical order.
+        ,
+        .slides =
+        \\Path to a text file containing a list of slides for the presentation.
+        \\(Specify the exact files and their ordering, rather than iterating
+        \\all files in the directory in alphabetical order).
+        ,
+        .recurse = "Recursively iterate the directory to find .md files.",
+        .verbose = "Enable verbose output from the Markdown parser.",
+    };
+
+    slides: ?[]const u8 = null,
+    directory: ?[]const u8 = null,
+    recurse: bool = false,
+    verbose: bool = false,
+
+    pub const switches = .{
+        .directory = 'd',
+        .slides = 's',
+        .recurse = 'r',
+        .verbose = 'v',
+    };
+};
 
 const Source = struct {
     dir: Dir = undefined,
@@ -37,46 +59,37 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    // Use Zig-Clap to parse a list of arguments
-    // Each arg has a short and/or long variant with optional type and help description
-    const params = comptime clap.parseParamsComptime(
-        \\     --help         Display help and exit
-        \\ -r, --recurse      Recursively iterate the directory to find .md files
-        \\ -v, --verbose      Verbose parser output
-        \\ -s, --slides <str> Path to a text file containing a list of slides for the
-        \\                    presentation (rather than all files in the directory)
-        \\ <str>              Directory for the slide deck
-        \\
-    );
+    var args = try std.process.argsWithAllocator(alloc);
+    defer args.deinit();
+    const params = flags.parse(&args, Slidey, .{}) catch std.process.exit(1);
 
-    // Have Clap parse the command-line arguments
-    var res = try clap.parse(clap.Help, &params, clap.parsers.default, .{ .allocator = alloc });
-    defer res.deinit();
-
-    // Process args
-    if (res.args.help != 0) {
-        print_usage(alloc, params);
+    if (params.slides == null and params.directory == null) {
+        print_usage();
         std.process.exit(0);
     }
 
     var source: Source = .{};
 
-    if (res.args.slides) |s| {
-        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var root: ?[]const u8 = null;
+    if (params.slides) |s| {
         const path = try std.fs.realpath(s, &path_buf);
         source.slides = try std.fs.openFileAbsolute(path, .{ .mode = .read_only });
+        root = std.fs.path.dirname(path) orelse return error.DirectoryNotFound;
     }
 
-    for (res.positionals) |deck| {
-        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const path = try std.fs.realpath(deck, &path_buf);
-        source.root = path;
-
-        source.dir = try std.fs.openDirAbsolute(path, .{ .iterate = true });
-        break;
+    if (params.directory) |deck| {
+        source.root = try std.fs.realpathAlloc(alloc, deck);
+    } else if (root) |r| {
+        source.root = try alloc.dupe(u8, r);
+    } else {
+        source.root = try std.fs.realpathAlloc(alloc, ".");
     }
+    defer alloc.free(source.root);
 
-    const recurse: bool = (res.args.recurse > 0);
+    source.dir = try std.fs.openDirAbsolute(source.root, .{ .iterate = true });
+
+    const recurse: bool = params.recurse;
     const stdout = std.io.getStdOut().writer();
     try present(alloc, stdout, source, recurse);
 
@@ -100,7 +113,10 @@ fn loadSlidesFromDirectory(alloc: Allocator, dir: Dir, recurse: bool, slides: *A
         switch (entry.kind) {
             .file => {
                 var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                const realpath = try dir.realpath(entry.name, &path_buf);
+                const realpath = dir.realpath(entry.name, &path_buf) catch |err| {
+                    std.debug.print("Error loading slide: {s}\n", .{entry.name});
+                    return err;
+                };
                 if (std.mem.eql(u8, ".md", std.fs.path.extension(realpath))) {
                     std.debug.print("Adding slide: {s}\n", .{realpath});
                     const slide: []const u8 = try alloc.dupe(u8, realpath);
@@ -128,7 +144,10 @@ fn loadSlidesFromFile(alloc: Allocator, dir: Dir, file: File, slides: *ArrayList
         if (name.len < 1) break;
 
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const realpath = try dir.realpath(name, &path_buf);
+        const realpath = dir.realpath(name, &path_buf) catch |err| {
+            std.debug.print("Error loading slide: {s}\n", .{name});
+            return err;
+        };
         if (std.mem.eql(u8, ".md", std.fs.path.extension(realpath))) {
             std.debug.print("Adding slide: {s}\n", .{realpath});
             const slide: []const u8 = try alloc.dupe(u8, realpath);

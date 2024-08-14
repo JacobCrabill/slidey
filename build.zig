@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) !void {
     // Dependencies from build.zig.zon
     // ------------------------------------------------------------------------
     // Zigdown
-    // Note that we also inherit its Zig-Clap and STB Image dependencies
+    // Note that we also inherit its Flags and STB Image dependencies
     const zigdown = b.dependency("zigdown", .{ .optimize = optimize, .target = target });
     const zigdown_dep = Dependency{ .name = "zigdown", .module = zigdown.module("zigdown") };
 
@@ -88,7 +88,7 @@ fn addExecutable(b: *std.Build, config: ExeConfig, opts: BuildOpts) void {
     // Compile the executable
     const exe = b.addExecutable(.{
         .name = config.name,
-        .root_source_file = .{ .path = config.root_path },
+        .root_source_file = b.path(config.root_path),
         .version = config.version,
         .optimize = opts.optimize,
         .target = opts.target orelse b.host,
