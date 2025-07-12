@@ -1,5 +1,9 @@
 # Slidey: Elegant Slideshows in Zig
 
+> [!IMPORTANT]
+> This project is deprecated in favor of using [zigdown](https://github.com/JacobCrabill/zigdown)
+> directly (use the 'present' command).
+
 Use Markdown to create simple yet elegant slide shows
 
 Test example:
